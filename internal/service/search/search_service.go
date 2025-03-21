@@ -2,6 +2,7 @@ package search
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/blevesearch/bleve"
 	"github.com/rs/zerolog/log"
@@ -89,7 +90,7 @@ func (s *SearchService) Search(query string, limit int) ([]*model.Bookmark, erro
 		limit = 20
 	}
 
-	searchQuery := bleve.NewQueryStringQuery(query)
+	searchQuery := bleve.NewQueryStringQuery(fmt.Sprintf("*%s*", query))
 	searchRequest := bleve.NewSearchRequest(searchQuery)
 	searchRequest.Size = limit
 	searchRequest.Fields = []string{"id"}
@@ -106,16 +107,14 @@ func (s *SearchService) Search(query string, limit int) ([]*model.Bookmark, erro
 			continue
 		}
 
-		var id int64
-		_, err := fmt.Scanf(idStr, "%d", &id)
-		if err != nil {
-			log.Warn().Str("docID", hit.ID).Err(err).Msg("Failed to parse bookmark ID")
-			continue
-		}
+    id, err := strconv.ParseInt(idStr, 10,  64)
+    if err != nil {
+      log.Warn().Str("docID", hit.ID).Err(err).Msg("Failed to parse bookmark ID")
+    }
 
 		bookmark, err := s.repo.GetByID(id)
 		if err != nil {
-			log.Warn().Int64("id", id).Err(err).Msg("Failed to featch bookmark data")
+			log.Warn().Int64("id", id).Err(err).Msg("Failed to fetch bookmark data")
 			continue
 		}
 

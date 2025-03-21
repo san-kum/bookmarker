@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
+  _ "github.com/mattn/go-sqlite3"
 	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog/log"
 )
@@ -50,6 +50,7 @@ func initScheme(db *sqlx.DB) error {
         summary TEXT,
         created_at TIMESTAMP NOT NULL,
         updated_at TIMESTAMP NOT NULL
+      );
   `)
 	if err != nil {
 		return err
@@ -59,6 +60,7 @@ func initScheme(db *sqlx.DB) error {
   CREATE TABLE IF NOT EXISTS tags (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT UNIQUE NOT NULL
+      );
   `)
 	if err != nil {
 		return err
@@ -71,6 +73,7 @@ func initScheme(db *sqlx.DB) error {
         PRIMARY KEY (bookmark_id, tag_id),
         FOREIGN KEY (bookmark_id) REFERENCES bookmarks(id) ON DELETE CASCADE,
         FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+      );
   `)
 	if err != nil {
 		return err
@@ -82,6 +85,7 @@ func initScheme(db *sqlx.DB) error {
         username TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
         created_at TIMESTAMP NOT NULL
+      );
   `)
 	if err != nil {
 		return err
