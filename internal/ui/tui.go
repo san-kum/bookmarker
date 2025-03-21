@@ -2,10 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"github.com/sahilm/fuzzy"
 	"github.com/san-kum/bookmarker/internal/model"
 	"github.com/san-kum/bookmarker/internal/service"
 	"github.com/san-kum/bookmarker/internal/service/search"
@@ -90,8 +93,29 @@ func (t *TUI) setupUI() {
 			t.app.Stop()
 			return nil
 		}
+		switch event.Rune() {
+		case 'n':
+			t.showPage("addBookmark")
+		}
 		return event
 	})
+}
+
+func (t *TUI) deleteBookmark(bookmark *model.Bookmark) {
+	if bookmark == nil {
+		t.setStatus("[red]No bookmark selected to delete[white]")
+		return
+	}
+
+	err := t.bookmarkService.Delete(bookmark.ID)
+	if err != nil {
+		t.setStatus(fmt.Sprintf("[red]Failed to delete bookmark: %v[white]", err))
+		return
+	}
+
+	t.setStatus("[green]Bookmark deleted successfully[white]")
+	t.loadBookmarks("")
+	t.showPage("bookmarkList")
 }
 
 // setupStatusBar initializes the status bar
@@ -103,16 +127,14 @@ func (t *TUI) setupStatusBar() {
 	t.statusBar.SetText("[green]Ready[white]")
 }
 
-// setupHelpBar initializes the help bar
 func (t *TUI) setupHelpBar() {
 	t.helpBar = tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetDynamicColors(true)
 	t.helpBar.SetBorder(true).SetTitle(" Help ")
-	t.helpBar.SetText("[yellow]Ctrl+Q[white]: Quit | [yellow]Esc[white]: Back | [yellow]Enter[white]: Select")
+	t.helpBar.SetText("[yellow]n[white]: New | [yellow]d[white]: Delete | [yellow]q[white]: Quit | [yellow]Enter[white]: Select | [yellow]Tab[white]: Switch")
 }
 
-// setupMainPage initializes the main menu page
 func (t *TUI) setupMainPage() {
 	// Create menu
 	menu := tview.NewList().
@@ -207,11 +229,11 @@ func (t *TUI) setupSearchPage() {
 		if key == tcell.KeyEnter {
 			query := searchInput.GetText()
 			t.search(query, searchResults)
-			// t.app.SetFocus(searchResults)
 		}
 	})
 
-	t.searchPage = tview.NewFlex().SetDirection(tview.FlexRow).AddItem(searchInput, 3, 0, true).
+	t.searchPage = tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(searchInput, 3, 0, true).
 		AddItem(searchResults, 0, 2, false).
 		AddItem(t.statusBar, 1, 0, false).
 		AddItem(t.helpBar, 1, 0, false)
@@ -261,55 +283,107 @@ func (t *TUI) setupAddBookmarkPage() {
 
 }
 
+// helper for opening URL
+func openURL(url string) {
+	var cmd string
+	var args []string
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = "rundll32"
+		args = append(args, "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = "open"
+		args = append(args, url)
+	default: // linux or other kernel
+		cmd = "xdg-open"
+		args = append(args, url)
+	}
+	exec.Command(cmd, args...).Start()
+
+}
+
 // setupViewBookmarkPage initializes the view bookmark page
 func (t *TUI) setupViewBookmarkPage() {
-	// Create text view for bookmark details
 	bookmarkDetails := tview.NewTextView().
 		SetDynamicColors(true).
 		SetRegions(true).
 		SetWordWrap(true)
 	bookmarkDetails.SetBorder(true).SetTitle(" Bookmark Details ")
 
-	// Create content view
 	contentView := tview.NewTextView().
 		SetDynamicColors(true).
 		SetRegions(true).
 		SetWordWrap(true)
 	contentView.SetBorder(true).SetTitle(" Content ")
 
-	// Create button bar
 	buttonBar := tview.NewFlex().SetDirection(tview.FlexColumn)
-
-	// Add buttons
-	openButton := tview.NewButton("Open").SetSelectedFunc(func() {
-		// This would launch the URL in a browser in a real app
-		t.setStatus("[yellow]Opening URL is not implemented in this demo[white]")
-	})
-	deleteButton := tview.NewButton("Delete").SetSelectedFunc(func() {
-		// This would show a confirmation dialog and delete the bookmark
-		t.setStatus("[red]Delete not implemented in this demo[white]")
-	})
-	editTagsButton := tview.NewButton("Edit Tags").SetSelectedFunc(func() {
-		// This would show a dialog to edit tags
-		t.setStatus("[yellow]Edit tags not implemented in this demo[white]")
-	})
 	backButton := tview.NewButton("Back").SetSelectedFunc(func() {
 		t.showPage("bookmarkList")
 	})
 
-	// Add buttons to button bar
+	openButton := tview.NewButton("Open").SetSelectedFunc(func() {
+		bookmark := t.currentBookmarks[0]
+		if bookmark.URL == "" {
+			t.setStatus("[red]No URL to open[white]")
+			return
+		}
+		openURL(bookmark.URL)
+		t.setStatus("[green]Opening URL...[white]")
+	})
+
+	deleteButton := tview.NewButton("Delete").SetSelectedFunc(func() {
+		index := t.bookmarkList.GetCurrentItem()
+		if index < 0 || index >= len(t.currentBookmarks) {
+			t.setStatus("[red]No bookmark selected to delete[white]")
+			return
+		}
+		bookmark := t.currentBookmarks[index]
+		err := t.bookmarkService.Delete(bookmark.ID)
+		if err != nil {
+			t.setStatus(fmt.Sprintf("[red]Failed to delete bookmark: %v[white]", err))
+			return
+		}
+		t.setStatus("[green]Bookmark deleted successfully[white]")
+		t.loadBookmarks("")
+		t.showPage("bookmarkList")
+	})
+
+	editTagsButton := tview.NewButton("Edit Tags").SetSelectedFunc(func() {
+		t.setStatus("[yellow]Edit tags not implemented in this demo[white]")
+	})
+
 	buttonBar.AddItem(openButton, 0, 1, true).
 		AddItem(deleteButton, 0, 1, false).
 		AddItem(editTagsButton, 0, 1, false).
 		AddItem(backButton, 0, 1, false)
 
-	// Create layout
 	t.viewBookmarkPage = tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(bookmarkDetails, 6, 0, true).
 		AddItem(contentView, 0, 1, false).
 		AddItem(buttonBar, 1, 0, false).
 		AddItem(t.statusBar, 1, 0, false).
 		AddItem(t.helpBar, 1, 0, false)
+
+	t.viewBookmarkPage.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyTab:
+			t.switchFocus(bookmarkDetails, contentView)
+			return nil
+		}
+		return event
+	})
+}
+
+func (t *TUI) switchFocus(views ...tview.Primitive) {
+	for i, view := range views {
+		if t.app.GetFocus() == view {
+			next := (i + 1) % len(views)
+			t.app.SetFocus(views[next])
+			return
+		}
+	}
+	t.app.SetFocus(views[0])
 }
 
 // loadBookmarks loads and displays bookmarks
@@ -389,41 +463,34 @@ func (t *TUI) search(query string, results *tview.List) {
 	// Clear results
 	results.Clear()
 
-	// Perform search
-	var err error
-	t.currentBookmarks, err = t.searchService.Search(query, 100)
+	allBookmarks, err := t.bookmarkService.List("", 1000, 0)
 	if err != nil {
 		t.setStatus(fmt.Sprintf("[red]Search failed: %v[white]", err))
-		return
 	}
 
-	// Add results to list
-	for _, bookmark := range t.currentBookmarks {
-		title := bookmark.Title
-		if title == "" {
-			title = bookmark.URL
-		}
+	// fuzzy search
+	titles := []string{}
+	for _, b := range allBookmarks {
+		titles = append(titles, b.Title)
+	}
+	matches := fuzzy.Find(query, titles)
 
-		// Create secondary text with tags
-		var tagNames []string
-		for _, tag := range bookmark.Tags {
-			tagNames = append(tagNames, tag.Name)
-		}
-		secondaryText := strings.Join(tagNames, ", ")
-		if secondaryText == "" {
-			secondaryText = "No tags"
-		}
+	t.currentBookmarks = []*model.Bookmark{}
+	for _, match := range matches {
+		bookmark := allBookmarks[match.Index]
+		t.currentBookmarks = append(t.currentBookmarks, bookmark)
 
-		results.AddItem(title, secondaryText, 0, nil)
+		highlighted := strings.ReplaceAll(bookmark.Title, query, fmt.Sprintf("[yellow]%s[white]", query))
+		results.AddItem(highlighted, bookmark.URL, 0, nil)
 	}
 
 	results.SetTitle(fmt.Sprintf(" Search Results for '%s' ", query))
-	t.setStatus(fmt.Sprintf("[green]Found %d results[white]", len(t.currentBookmarks)))
+	t.setStatus(fmt.Sprintf("[green]Found %d results[white]", len(matches)))
 
-  // clear the form
-  searchInput := t.searchPage.GetItem(0).(*tview.InputField)
-  searchInput.SetText("")
-  t.app.SetFocus(results)
+	// clear the form
+	searchInput := t.searchPage.GetItem(0).(*tview.InputField)
+	searchInput.SetText("")
+	t.app.SetFocus(results)
 }
 
 // addBookmark adds a new bookmark
@@ -460,10 +527,9 @@ func (t *TUI) viewBookmark(bookmark *model.Bookmark) {
 	contentView := t.viewBookmarkPage.GetItem(1).(*tview.TextView)
 
 	// Clear views
-	detailsView.Clear()
-	contentView.Clear()
+	// detailsView.Clear()
+	// contentView.Clear()
 
-	// Format details
 	detailsView.SetText(fmt.Sprintf(
 		"[yellow]Title:[white] %s\n"+
 			"[yellow]URL:[white] %s\n"+
@@ -485,10 +551,10 @@ func (t *TUI) viewBookmark(bookmark *model.Bookmark) {
 		bookmark.Content,
 	))
 
-	// Update title
-	t.viewBookmarkPage.GetItem(0).(*tview.TextView).SetTitle(fmt.Sprintf(" Bookmark: %s ", bookmark.Title))
+	// // Update title
+	// t.viewBookmarkPage.GetItem(0).(*tview.TextView).SetTitle(fmt.Sprintf(" Bookmark: %s ", bookmark.Title))
 
-	// Show page
+	t.app.SetFocus(detailsView)
 	t.showPage("viewBookmark")
 }
 
